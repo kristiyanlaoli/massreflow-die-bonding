@@ -1,4 +1,4 @@
-# Flip Chip Mass Reflow Simulator v1.0
+# Flip Chip Mass Reflow Simulator v1.2
 
 Interactive 3D teaching app based on the Paste v1.6 / Film v1.0 interface. Independent Next.js project for Vercel. The default language is English; local SVG flag buttons switch to Indonesian and Traditional Chinese (Taiwan). No database or CSV export.
 
@@ -30,3 +30,12 @@ See ENGINEERING_NOTES.md. Geometry, formulas, defect thresholds and process timi
 - Hide **Process Scenarios** on phone and narrow tablet screens (viewport width ≤999 px), matching the Paste Type simulator.
 - Keep scenario buttons available on desktop (viewport width ≥1000 px).
 - 3D workflow, process parameters, and language support are unchanged.
+
+## v1.2 Flux spray visualization
+
+- Replaces sequential per-pad flux dots with a wide-area spray head producing a fine particle mist over the entire die-bonding footprint at once.
+- The spray deposits a **continuous thin translucent film** over the pad region, rather than a thick paste or individual dispensing dots.
+- This same film persists after spray during pick-up, alignment, and die placement. It decreases during solder reflow; flux residues remain subject to the existing cleaning simulation.
+- The flux-amount control now modulates the optical strength/thickness of the coating; it does **not** change the number of pads receiving the spray.
+- The spray is an educational illustration of one possible flux application method, not a claim that every flip-chip line uses area spraying or that a uniform film is feasible for every chemistry. Actual flux chemistry, dosage, spraying system and residue requirements depend on the process.
+- Mobile Process Scenarios stay hidden at viewport width ≤999 px, as in v1.1.

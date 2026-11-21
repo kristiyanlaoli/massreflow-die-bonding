@@ -44,7 +44,114 @@ function Die({p,faceUp=false,gap,joined=0,fade=false,r}:{p:Parameters;faceUp?:bo
 }
 function TapeRing({p}:{p:Parameters}){const l=getSceneLayout(p);return <group><mesh position={[0,TAPE,0]} rotation={[-Math.PI/2,0,0]}><circleGeometry args={[l.tapeRadius,64]}/><meshPhysicalMaterial color="#3c8a95" transparent opacity={.38} side={2} depthWrite={false}/></mesh><mesh position={[0,-.04,0]} rotation={[-Math.PI/2,0,0]}><torusGeometry args={[l.tapeRadius+.14,.18,12,64]}/><meshStandardMaterial color="#a4b4c4" metalness={.83} roughness={.26}/></mesh><mesh position={[0,-.86,0]} rotation={[-Math.PI/2,0,0]}><ringGeometry args={[l.tapeRadius-.3,l.baseRadius,64]}/><meshStandardMaterial color="#27374a" side={2}/></mesh></group>}
 function Wafer({p,eject,center}:{p:Parameters;eject:number;center:boolean}){const l=getSceneLayout(p), y=TAPE+thick(p)/2;return <group position={[l.waferX,0,0]}><TapeRing p={p}/>{[-1,0,1].flatMap(x=>[-1,0,1].map(z=>!center&&x===0&&z===0?null:<group key={`${x}-${z}`} position={[x*(p.dieWidth+.42),y,z*(p.dieHeight+.42)]}><Die p={p} faceUp gap={rawGap(p)}/></group>))}<group position={[0,eject,0]}><mesh position={[0,-.76,0]}><boxGeometry args={[p.dieWidth*.62,.12,p.dieHeight*.62]}/><meshStandardMaterial color="#738da1" metalness={.7}/></mesh><mesh position={[-p.dieWidth*.43,-.76,0]}><boxGeometry args={[p.dieWidth*.86,.14,.35]}/><meshStandardMaterial color="#738da1" metalness={.7}/></mesh>{[-1,1].flatMap(x=>[-1,1].map(z=><mesh key={`${x}-${z}`} position={[x*p.dieWidth*.19,-.4,z*p.dieHeight*.19]}><cylinderGeometry args={[.07,.07,.8,16]}/><meshStandardMaterial color="#d4dde7" metalness={.8}/></mesh>))}</group></group>}
-function Board({p,flux=0,residue=0}:{p:Parameters;flux?:number;residue?:number}){const l=getSceneLayout(p), rad=radius(p);return <group><mesh position={[0,-.065,0]} castShadow receiveShadow><boxGeometry args={[l.substrateWidth,.62,l.substrateDepth]}/><meshStandardMaterial color="#235b55" roughness={.44}/></mesh><mesh position={[0,-.41,0]}><boxGeometry args={[l.substrateWidth+.8,.09,l.substrateDepth+.7]}/><meshStandardMaterial color="#142336"/></mesh>{positions(p).map(([x,z],i)=><group key={i} position={[x,.275,z]}><mesh><cylinderGeometry args={[rad*1.12,rad*1.12,.11,16]}/><meshStandardMaterial color="#d4a259" metalness={.7} roughness={.3}/></mesh>{i<Math.ceil(flux*25)&&<mesh position={[0,.062,0]}><cylinderGeometry args={[rad*1.12,rad*1.12,.025,16]}/><meshPhysicalMaterial color="#eab552" transparent opacity={.75} roughness={.22}/></mesh>}{residue>0&&i<Math.ceil(residue*25/100)&&<mesh position={[rad*.7,.066,0]}><sphereGeometry args={[rad*.45,10,8]}/><meshStandardMaterial color="#a67a38" transparent opacity={.7}/></mesh>}</group>)}{[-1,1].flatMap(x=>[-1,1].map(z=><group key={`${x}-${z}`} position={[x*(p.dieWidth/2+.25),.25,z*(p.dieHeight/2+.25)]}><mesh><boxGeometry args={[.22,.016,.03]}/><meshBasicMaterial color="#6ae7e6"/></mesh><mesh><boxGeometry args={[.03,.016,.22]}/><meshBasicMaterial color="#6ae7e6"/></mesh></group>))}</group>}
+/** A single thin, continuous flux coating over the entire bonding footprint.
+ * The flux parameter is application progress (0–1); dose controls visible film strength.
+ * Individual pads are NEVER coated sequentially in the spray model.
+ */
+function FluxCoating({p,level}:{p:Parameters;level:number}) {
+  const coating=clamp(level,0,1);
+  if(coating<=0) return null;
+  const dose=clamp(p.fluxAmount/100,.2,1.6);
+  const filmThickness=.012+.008*dose;
+  const opticalStrength=clamp(.16+.10*dose,.18,.34);
+  return <group>
+    <mesh position={[0,PAD+filmThickness/2+.007,0]}>
+      <boxGeometry args={[p.dieWidth*.96,filmThickness,p.dieHeight*.96]}/>
+      <meshPhysicalMaterial color="#f4bd64" roughness={.19} metalness={0} clearcoat={.8}
+        transparent opacity={coating*opticalStrength} depthWrite={false}/>
+    </mesh>
+    {/* All pads receive a subtle wetting highlight together, rather than dot-by-dot. */}
+    {positions(p).map(([x,z],i)=><mesh key={i} position={[x,PAD+filmThickness+.015,z]} rotation={[-Math.PI/2,0,0]}>
+      <ringGeometry args={[radius(p)*.88,radius(p)*1.34,24]}/>
+      <meshBasicMaterial color="#ffcf78" transparent opacity={coating*(.13+.08*dose)} depthWrite={false} side={2}/>
+    </mesh>)}
+  </group>;
+}
+
+/** Wide-area spray head: fine mist lands across the complete pad region simultaneously.
+ * All particles are schematic; no per-bump dispensing is performed.
+ */
+function FluxSpray({p,progress}:{p:Parameters;progress:number}) {
+  const emit=smooth((progress-.06)/.12)*(1-smooth((progress-.83)/.12));
+  const headLift=.48*(1-smooth(progress/.13)+smooth((progress-.90)/.10));
+  const headY=1.92+headLift;
+  const particles=useMemo(()=>{
+    const count=128;
+    const coordinates=new Float32Array(count*3);
+    for(let i=0;i<count;i++){
+      // Deterministic quasirandom grid: distributed over the FULL die footprint.
+      const u=((i*43+17)%131)/130;
+      const v=((i*73+29)%137)/136;
+      const fall=(i*.127+progress*5.3)%1;
+      coordinates[i*3]=(u-.5)*p.dieWidth*.94;
+      coordinates[i*3+1]=PAD+.18+(headY-PAD-.46)*fall;
+      coordinates[i*3+2]=(v-.5)*p.dieHeight*.94;
+    }
+    return coordinates;
+  },[p.dieWidth,p.dieHeight,progress,headY]);
+  return <group>
+    <group position={[0,headY,0]}>
+      <mesh position={[0,.21,0]} castShadow>
+        <boxGeometry args={[p.dieWidth*.86,.34,p.dieHeight*.83]}/>
+        <meshStandardMaterial color="#aebfcf" metalness={.76} roughness={.26}/>
+      </mesh>
+      <mesh position={[0,.52,0]}>
+        <cylinderGeometry args={[.20,.25,.42,18]}/>
+        <meshStandardMaterial color="#b8c9d5" metalness={.74}/>
+      </mesh>
+      <mesh position={[0,.83,0]}>
+        <cylinderGeometry args={[.14,.14,.27,16]}/>
+        <meshStandardMaterial color="#758da2" metalness={.78}/>
+      </mesh>
+      {[-.21,.21].map((row,i)=><mesh key={i} position={[row*p.dieWidth,0,0]}>
+        <boxGeometry args={[.075,.047,p.dieHeight*.67]}/>
+        <meshStandardMaterial color="#d6a85d" metalness={.47} roughness={.3}/>
+      </mesh>)}
+    </group>
+    {emit>.005&&<>
+      <points>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[particles,3]}/>
+        </bufferGeometry>
+        <pointsMaterial color="#ffd685" size={Math.max(.08,Math.min(p.dieWidth,p.dieHeight)*.025)}
+          sizeAttenuation transparent opacity={emit*.86} depthWrite={false}/>
+      </points>
+      <mesh position={[0,(headY+PAD)/2,0]}>
+        <boxGeometry args={[p.dieWidth*.90,headY-PAD-.28,p.dieHeight*.90]}/>
+        <meshBasicMaterial color="#e7b66c" transparent opacity={.028*emit} depthWrite={false}/>
+      </mesh>
+    </>}
+  </group>;
+}
+
+function Board({p,flux=0,residue=0}:{p:Parameters;flux?:number;residue?:number}){
+  const l=getSceneLayout(p),rad=radius(p);
+  return <group>
+    <mesh position={[0,-.065,0]} castShadow receiveShadow>
+      <boxGeometry args={[l.substrateWidth,.62,l.substrateDepth]}/>
+      <meshStandardMaterial color="#235b55" roughness={.44}/>
+    </mesh>
+    <mesh position={[0,-.41,0]}>
+      <boxGeometry args={[l.substrateWidth+.8,.09,l.substrateDepth+.7]}/>
+      <meshStandardMaterial color="#142336"/>
+    </mesh>
+    {positions(p).map(([x,z],i)=><group key={i} position={[x,.275,z]}>
+      <mesh>
+        <cylinderGeometry args={[rad*1.12,rad*1.12,.11,16]}/>
+        <meshStandardMaterial color="#d4a259" metalness={.7} roughness={.3}/>
+      </mesh>
+      {residue>0&&i<Math.ceil(residue*25/100)&&<mesh position={[rad*.7,.066,0]}>
+        <sphereGeometry args={[rad*.45,10,8]}/>
+        <meshStandardMaterial color="#a67a38" transparent opacity={.7}/>
+      </mesh>}
+    </group>)}
+    <FluxCoating p={p} level={flux}/>
+    {[-1,1].flatMap(x=>[-1,1].map(z=><group key={`${x}-${z}`} position={[x*(p.dieWidth/2+.25),.25,z*(p.dieHeight/2+.25)]}>
+      <mesh><boxGeometry args={[.22,.016,.03]}/><meshBasicMaterial color="#6ae7e6"/></mesh>
+      <mesh><boxGeometry args={[.03,.016,.22]}/><meshBasicMaterial color="#6ae7e6"/></mesh>
+    </group>))}
+  </group>;
+}
 function Head({gap=0,rotation=0}:{gap?:number;rotation?:number}){return <group position={[0,gap,0]} rotation={[0,0,rotation]}><mesh position={[0,.36,0]}><cylinderGeometry args={[.35,.44,.68,24]}/><meshStandardMaterial color="#9eb7cb" metalness={.8} roughness={.25}/></mesh><mesh position={[0,.95,0]}><cylinderGeometry args={[.19,.19,.55,20]}/><meshStandardMaterial color="#c4d6df" metalness={.7}/></mesh><mesh position={[0,.015,0]}><boxGeometry args={[.65,.065,.65]}/><meshStandardMaterial color="#475e72"/></mesh></group>}
 function Nozzle({x,y,z,color}:{x:number;y:number;z:number;color:string}){return <group position={[x,y,z]}><mesh position={[0,.85,0]}><cylinderGeometry args={[.24,.30,1.35,20]}/><meshStandardMaterial color="#b1c3d2" metalness={.7}/></mesh><mesh position={[0,.12,0]} rotation={[Math.PI,0,0]}><coneGeometry args={[.24,.58,20]}/><meshStandardMaterial color={color}/></mesh><mesh position={[0,-.22,0]}><cylinderGeometry args={[.045,.045,.14,12]}/><meshStandardMaterial color={color}/></mesh></group>}
 function Underfill({p,r,progress,cured,transparent=false,section=false}:{p:Parameters;r:Results;progress:number;cured:boolean;transparent?:boolean;section?:boolean}){const f=clamp(progress*r.coverage/100,0,1), w=p.dieWidth*f, g=finalGap(p,r);if(f<=0)return null;return <group position={[displacement(p,p.offsetX),0,section?0:displacement(p,p.offsetY)]}><mesh position={[-p.dieWidth/2+w/2,PAD+g/2,0]}><boxGeometry args={[w,g,section?1.1:p.dieHeight]}/><meshPhysicalMaterial color={cured?'#4882ae':'#409ec9'} opacity={transparent||section ? .36 : .75} transparent roughness={.28} depthWrite={false}/></mesh><mesh position={[-p.dieWidth/2-.06,PAD+g*.23,0]}><boxGeometry args={[.16,g*.46,section?1.1:p.dieHeight+.14]}/><meshPhysicalMaterial color="#409ec9" transparent opacity={.8}/></mesh>{r.voids>5&&f>.45&&[0,1,2].map(i=><mesh key={i} position={[-p.dieWidth/2+w*(.2+i*.28),PAD+g*.5,section ? .56 :(i-1)*p.dieHeight*.25]}><sphereGeometry args={[g*.3,12,10]}/><meshBasicMaterial color="#0e202e"/></mesh>)}</group>}
@@ -59,9 +166,12 @@ function Assembly({p,r,stage,progress:t,viewMode}:{p:Parameters;r:Results;stage:
  const joint=stage==='reflow'?smooth((t-.48)/.35):1;
  return <group><Ground/>
  {st<=2&&<Wafer p={p} eject={eject} center={stage==='flux'}/>}
- {stage==='flux'&&<group position={[l.substrateX,0,0]}><Board p={p} flux={smooth((t-.08)/.81)*Math.min(1,p.fluxAmount/100)}/>{(()=>{const i=Math.min(24,Math.floor(clamp((t-.08)/.81,0,1)*25));const [x,z]=positions(p)[i];return <Nozzle x={x} z={z} y={.72+1.6*(1-smooth(t/.08)+smooth((t-.9)/.1))} color="#dfaa4e"/>})()}</group>}
- {st>=1&&st<=3&&<><group position={[l.substrateX,0,0]}><Board p={p} flux={Math.min(1,p.fluxAmount/100)}/></group><group position={[x,y,z]} rotation={[0,0,rot]}><Die p={p} faceUp gap={g} fade={fade}/>{stage==='pickup'&&t<.88&&<Head gap={h/2+g+2*(1-smooth(t/.18))}/>}</group>{(stage==='align'||stage==='place'||stage==='pickup'&&t>=.88)&&<group position={[x,y+h/2+(stage==='place'?2*smooth((t-.8)/.2):0),z]}><Head/></group>}{stage==='align'&&<group position={[l.substrateX,.4,0]}><mesh><boxGeometry args={[p.dieWidth+1,.018,.02]}/><meshBasicMaterial color="#60eaff"/></mesh><mesh><boxGeometry args={[.02,.018,p.dieHeight+1]}/><meshBasicMaterial color="#60eaff"/></mesh></group>}</>}
- {stage==='reflow'&&<group position={[l.substrateX,0,0]}><mesh position={[0,-.62,0]}><boxGeometry args={[(l.substrateWidth+1)*3,.26,l.substrateDepth+2]}/><meshStandardMaterial color="#344e60" metalness={.4}/></mesh>{[-1,0,1].map(i=><group key={i} position={[i*(l.substrateWidth+1)+(.42*t),0,0]}><Placement p={p} r={r} joined={joint} flux={(1-joint)*Math.min(1,p.fluxAmount/100)} residue={joint*100} fade={fade}/></group>)}<Tunnel p={p} progress={t} wide/></group>}
+ {stage==='flux'&&<group position={[l.substrateX,0,0]}>
+   <Board p={p} flux={smooth((t-.12)/.64)}/>
+   <FluxSpray p={p} progress={t}/>
+ </group>}
+ {st>=1&&st<=3&&<><group position={[l.substrateX,0,0]}><Board p={p} flux={1}/></group><group position={[x,y,z]} rotation={[0,0,rot]}><Die p={p} faceUp gap={g} fade={fade}/>{stage==='pickup'&&t<.88&&<Head gap={h/2+g+2*(1-smooth(t/.18))}/>}</group>{(stage==='align'||stage==='place'||stage==='pickup'&&t>=.88)&&<group position={[x,y+h/2+(stage==='place'?2*smooth((t-.8)/.2):0),z]}><Head/></group>}{stage==='align'&&<group position={[l.substrateX,.4,0]}><mesh><boxGeometry args={[p.dieWidth+1,.018,.02]}/><meshBasicMaterial color="#60eaff"/></mesh><mesh><boxGeometry args={[.02,.018,p.dieHeight+1]}/><meshBasicMaterial color="#60eaff"/></mesh></group>}</>}
+ {stage==='reflow'&&<group position={[l.substrateX,0,0]}><mesh position={[0,-.62,0]}><boxGeometry args={[(l.substrateWidth+1)*3,.26,l.substrateDepth+2]}/><meshStandardMaterial color="#344e60" metalness={.4}/></mesh>{[-1,0,1].map(i=><group key={i} position={[i*(l.substrateWidth+1)+(.42*t),0,0]}><Placement p={p} r={r} joined={joint} flux={1-joint} residue={joint*100} fade={fade}/></group>)}<Tunnel p={p} progress={t} wide/></group>}
  {st>=5&&<group position={[l.substrateX,0,0]}><Placement p={p} r={r} joined={1} residue={stage==='clean'?lerp(100,r.residue,t):r.residue} fill={stage==='underfill'?smooth((t-.15)/.76):st>6?1:0} cured={st>7||stage==='cure'&&t>.95} fade={fade||stage==='underfill'}/>{stage==='clean'&&<><Nozzle x={-p.dieWidth/2-.35} y={1.7} z={lerp(-p.dieHeight/2,p.dieHeight/2,t)} color="#63d4e8"/>{Array.from({length:9},(_,i)=><mesh key={i} position={[-p.dieWidth/2-.35+(i%3)*.14, .4+(i%4)*.19,lerp(-p.dieHeight/2,p.dieHeight/2,t)+Math.sin(i)*.2]}><sphereGeometry args={[.055,8,6]}/><meshBasicMaterial color="#91edff" transparent opacity={.65}/></mesh>)}</>}{stage==='underfill'&&<Nozzle x={-p.dieWidth/2-.18} y={.9+1.4*smooth((t-.82)/.18)} z={lerp(-p.dieHeight/2,p.dieHeight/2,smooth(t/.6))} color="#439acd"/>}{stage==='cure'&&<Tunnel p={p} progress={t}/>}</group>}
  </group>}
 function CrossSection({p,r,stage,progress}:{p:Parameters;r:Results;stage:Stage;progress:number}){const g=finalGap(p,r),h=thick(p),w=p.dieWidth,rad=radius(p),st=STAGES.findIndex(s=>s.id===stage);return <group><Ground/><mesh position={[0,-.18,0]}><boxGeometry args={[w+2,.7,1.1]}/><meshStandardMaterial color="#235b55"/></mesh><group position={[displacement(p,p.offsetX),.23+g+h/2,0]}><mesh><boxGeometry args={[w,h,1.1]}/><meshStandardMaterial color="#52728a"/></mesh></group>{[-2,-1,0,1,2].map((i,n)=><group key={i}><mesh position={[i*pitchVisual(p),.20,0]}><boxGeometry args={[rad*2.2,.06,1.1]}/><meshStandardMaterial color="#d4a259" metalness={.7}/></mesh><mesh position={[i*pitchVisual(p)+displacement(p,p.offsetX),.23+g*(r.opens>2&&n===0 ? .75 : .5),0]} scale={[rad*1.12,g*(r.opens>2&&n===0 ? .4 : 1)/2,.54]}><sphereGeometry args={[1,20,12]}/><meshStandardMaterial color="#c4d4df" metalness={.7}/></mesh></group>)}{r.bridge>2&&<mesh position={[displacement(p,p.offsetX)+pitchVisual(p)*.5,.23+g*.5,0]}><boxGeometry args={[pitchVisual(p)*1.35,g*.45,1.05]}/><meshStandardMaterial color="#c4d4df" metalness={.7}/></mesh>}{st>=6&&<group position={[0,-.10,0]}><Underfill p={p} r={r} progress={stage==='underfill'?smooth((progress-.15)/.76):1} cured={st>=8} section transparent/></group>}<mesh position={[-w/2-.3,.23+g/2,.57]}><boxGeometry args={[.025,g,.02]}/><meshBasicMaterial color="#68e3f2"/></mesh>{[-1,1].map(s=><mesh key={s} position={[-w/2-.3,.23+g/2+s*g/2,.57]}><boxGeometry args={[.25,.025,.03]}/><meshBasicMaterial color="#68e3f2"/></mesh>)}</group>}
