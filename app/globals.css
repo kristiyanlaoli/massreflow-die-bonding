@@ -299,7 +299,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .viewport-verdict{max-width: min(270px,72%);}
 .viewport-verdict small{white-space:normal;}
 .timeline-markers button{min-width:0;overflow-wrap:anywhere;}
-@media(max-width:999px){.stage-list{grid-template-columns:repeat(4,minmax(0,1fr));}.preset-section{display:block;margin-top:7px;}.preset-section .section-title{font-size:9px; margin-bottom:3px;}.preset-list{display:flex;overflow-x:auto;gap:5px;padding-bottom:3px;}.preset-button{flex:0 0 auto;min-width:0;width:auto;white-space:nowrap;font-size:10px;padding:6px 8px;}.timeline-markers{gap:1px;}.timeline-markers button{font-size:9px;}.film-legend{font-size:9px;}}
+@media(max-width:999px){.stage-list{grid-template-columns:repeat(4,minmax(0,1fr));}.timeline-markers{gap:1px;}.timeline-markers button{font-size:9px;}.film-legend{font-size:9px;}}
 @media(min-width:1000px){.stage-item{padding:6px 7px;}.stage-list{gap:2px;}.viewport-panel{min-height:250px;}.center-column{overflow:auto;}.detail-tools{z-index:5;}}
 
 /* Mass reflow: nine stages, keep the main viewport primary. */
@@ -308,3 +308,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 @media(max-width:420px){.timeline-markers{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;}.stage-content strong{font-size:9px;}.brand-title{font-size:12px;}}
 
 .dimension-chip svg{display:inline-block;vertical-align:middle;}
+
+/* v1.1: match Paste Type mobile layout; keep scenarios only on desktop. */
+@media (max-width:999px) { .preset-section { display:none; } }

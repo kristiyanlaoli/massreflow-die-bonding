@@ -24,3 +24,9 @@ Adjust die size/thickness, bump diameter and pitch, relative flux amount, placem
 ## Validation and limitations
 
 See ENGINEERING_NOTES.md. Geometry, formulas, defect thresholds and process timing are illustrative. No real product acceptance or calibrated CFD/thermal / metallurgical prediction is implied. The sampled 5×5 array represents a much larger bump array and is deliberately magnified; die, bump/pad and underfill dimensions are not on a common physical scale. Actual solder alloy, pad metallurgy, flux, X-ray inspection and underfill recipes require supplier and process validation.
+
+## v1.1 Mobile layout update
+
+- Hide **Process Scenarios** on phone and narrow tablet screens (viewport width ≤999 px), matching the Paste Type simulator.
+- Keep scenario buttons available on desktop (viewport width ≥1000 px).
+- 3D workflow, process parameters, and language support are unchanged.
